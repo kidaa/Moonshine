@@ -14,6 +14,11 @@ class App
     @middleware_objects  = [] of Middleware::Base,
     @controllers         = [] of Base::Controller
   )
+
+    @handler = Handler.new(@routes, @static_dirs,
+      @error_handlers, @request_middleware, @response_middleware,
+      @middleware_objects, @controllers)
+
     # add default 404 handler
     error_handler 404, do |req|
       Response.new(404, "Page not found")
@@ -28,9 +33,7 @@ class App
   def run(port = 8000)
     # Run the webapp on the specified port
     puts "Moonshine serving at port #{port}..."
-    server = HTTP::Server.new(port, Handler.new(@routes, @static_dirs,
-      @error_handlers, @request_middleware, @response_middleware,
-      @middleware_objects, @controllers))
+    server = HTTP::Server.new(port, @handler as Handler)
     server.listen()
   end
 
@@ -38,6 +41,7 @@ class App
     METHODS.each do |method|
       @routes[Route.new(method, regex)] = block
     end
+    self
   end
 
   def add_router(router)
@@ -47,6 +51,7 @@ class App
         route_string.split(" ")[1]
       )] = block
     end
+    self
   end
 
   # Add request middleware. If handler returns a
@@ -54,12 +59,14 @@ class App
   # If nil is returned, the next handler is run
   def request_middleware(&block : Request -> MiddlewareResponse)
     @request_middleware << block
+    self
   end
 
   ##
   # Add response middleware
   def response_middleware(&block : (Request, Response) -> Response)
     @response_middleware << block
+    self
   end
 
   ##
@@ -67,18 +74,21 @@ class App
   # with overridden process_request and process_response methods
   def middleware_object(instance : Middleware::Base)
     @middleware_objects << instance
+    self
   end
 
   def middleware_objects(objects : Array(Middleware::Base))
     objects.each do |object|
       middleware_object(object)
     end
+    self
   end
 
   def middleware_classes(classes)
     classes.each do |cls|
       middleware_object(cls.new)
     end
+    self
   end
 
   # Add handler for given error code
@@ -86,27 +96,25 @@ class App
   # in overriding the previous handler
   def error_handler(error_code, &block : Request -> Response)
     @error_handlers[error_code] = block
+    self
   end
 
   def add_static_dir(path)
     @static_dirs << path
+    self
   end
 
   def controller(controller : Controller)
     @controllers << controller
+    self
   end
-
-  # def controller(paths : Array(String), controller : Controller)
-  #   paths.each do |path|
-  #     controller(path, controller)
-  #   end
-  # end
 
   # methods for adding routes for individual
   # HTTP verbs
   {% for method in %w(get post put delete patch) %}
     def {{method.id}}(path, &block : Request -> Response)
       @routes[Route.new("{{method.id}}".upcase, path.to_s)] = block
+      self
     end
   {% end %}
 
@@ -114,6 +122,11 @@ class App
   {% for method in %w(get post put delete patch) %}
     def {{method.id}}(path, block : Request -> Response)
       @routes[Route.new("{{method.id}}".upcase, path.to_s)] = block
+      self
     end
   {% end %}
+
+  def call(req)
+    @handler.call req
+  end
 end
